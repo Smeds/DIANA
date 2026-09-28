@@ -738,6 +738,34 @@ You can specify a custom temporary work directory using the `-w` flag. This is u
 
 **Note:** The `-w` flag sets Nextflow's work directory where temporary files and intermediate results are stored during pipeline execution. By default nextflow create a folder `work` in the working directory.
 
+### Running on a SLURM Cluster
+By default every process runs on the machine where Nextflow is started. With `-profile slurm` (Singularity/Apptainer only) each process is submitted as its own SLURM job instead, using the per-process `cpus`/`memory` from `conf/*.config`:
+
+```bash
+./run_pipeline_singularity.sh --run_mode_order -profile slurm \
+    --slurm_account my_project --slurm_queue core \
+    -w /shared/scratch/diana_work
+
+# Through the sample monitor: everything after -- is forwarded to the pipeline
+bash smart_sample_monitor_v2.sh --singularity -w /shared/scratch/diana_work -- \
+    -profile slurm --slurm_account my_project
+```
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--slurm_account` | `sbatch --account` | none |
+| `--slurm_queue` | `sbatch --partition` | cluster default |
+| `--slurm_cluster_options` | Extra `sbatch` flags, e.g. `'--qos=high'` | none |
+| `--slurm_before_script` | Run before each task, e.g. `'module load apptainer'` | none |
+| `--slurm_time` | Walltime per task (doubled on the one retry after a SLURM kill) | `12h` |
+| `--slurm_queue_size` | Max jobs submitted at once | `50` |
+
+Requirements:
+- The work directory (`-w`), the pipeline directory (with `containers/*.sif`), the reference data (`params.path`) and the output directory must be on a filesystem shared by the compute nodes. Don't put the work directory in `/tmp`.
+- `apptainer`/`singularity` must be on the compute nodes' `PATH`. Use `--slurm_before_script` if it's a module.
+- `/data` is bind-mounted into containers when it exists on the node where Nextflow is started, so it must exist on the compute nodes too.
+- Nextflow itself keeps running on the launch node until the pipeline finishes. Start it inside `tmux`/`screen`, or submit it as a long-running low-resource job (e.g. `sbatch -c 1 --mem 4G -t 5-00:00:00 --wrap "..."`), if your cluster allows jobs to submit other jobs.
+
 ## Automated Sample Monitoring
 
 The pipeline includes `smart_sample_monitor_v2.sh` for **automated monitoring and processing** of Oxford Nanopore sequencing runs. This intelligent script continuously monitors sample directories and automatically triggers the pipeline when sequencing completes.
@@ -851,6 +879,7 @@ smart_sample_monitor --docker -d /data/WGS_27102025 -v
 | `-r` | `--resume` | Enable Nextflow resume | Disabled |
 | `-v` | `--verbose` | Enable verbose logging | Disabled |
 | `-h` | `--help` | Show help message | - |
+| `--` | | Forward all remaining arguments to the pipeline, e.g. `-- -profile slurm --slurm_account my_project` | - |
 
 ### Workflow:
 

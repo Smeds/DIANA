@@ -5,6 +5,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `Added`
+- Added a `slurm` profile (`conf/slurm.config`) that submits each process as a SLURM job, configured with `--slurm_account`, `--slurm_queue`, `--slurm_cluster_options`, `--slurm_before_script`, `--slurm_time` and `--slurm_queue_size`; tasks killed by SLURM (exit 137/140/143) are retried once with doubled walltime
+- Added `--` to `smart_sample_monitor_v2.sh`: all arguments after it are forwarded to `run_pipeline_*.sh` (e.g. `-- -profile slurm --slurm_account my_project`); `-profile` is rejected with the docker engine, which already sets `-profile docker`
+
+### `Fixed`
+- Removed hard-coded `executor = 'local'` from `conf/annotation.config` and `conf/mergebam.config`; because `run_pipeline_singularity.sh` passes these files with `-c`, it overrode any executor chosen by a profile (local remains Nextflow's default)
+
 ## [1.0.19] - 2026-09-11
 
 **Main changes since v1.0.18:**

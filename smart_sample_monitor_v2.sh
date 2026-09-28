@@ -47,6 +47,7 @@
 #   -i, --interval SEC      Check interval in seconds (default: 300)
 #   -t, --timeout SEC       Timeout per sample in seconds (default: 432000)
 #   -r, --resume            Enable Nextflow resume (use cached results)
+#   -- ARGS...              Pass remaining args to the pipeline (e.g. -profile slurm ...)
 #   -v, --verbose           Verbose logging
 #   -h, --help              Show help
 #
@@ -56,6 +57,7 @@
 #   ./smart_sample_monitor_v2.sh -d /custom/data
 #   ./smart_sample_monitor_v2.sh -o /data/projectA/routine_diana  # Per-project output dir
 #   ./smart_sample_monitor_v2.sh -r  # Enable resume
+#   ./smart_sample_monitor_v2.sh -- -profile slurm --slurm_account proj  # Submit via SLURM
 #==============================================================================
 
 set -eo pipefail
@@ -110,6 +112,7 @@ SAMPLE_IDS_FILE="$HARDCODED_SAMPLE_IDS_FILE"
 USER_SPECIFIED_DATA_DIR=false
 USER_SPECIFIED_OUTPUT_DIR=false
 RESUME_ENABLED=false
+EXTRA_PIPELINE_ARGS=()   # everything after '--', forwarded to run_pipeline_*.sh
 CONTAINER_ENGINE=""   # "singularity", "docker", or "apptainer" — auto-detected if unset
 
 # Tracking arrays
@@ -172,6 +175,8 @@ ${YELLOW}OPTIONS:${NC}
         --docker            Shorthand for --engine docker
         --singularity       Shorthand for --engine singularity
     -r, --resume            Enable Nextflow resume (use cached results)
+    -- ARGS...              Forward all remaining arguments to the pipeline
+                            (e.g. -- -profile slurm --slurm_account my_project)
     -v, --verbose           Enable verbose logging
     -h, --help              Show this help message
 
@@ -190,6 +195,9 @@ ${YELLOW}EXAMPLES:${NC}
 
     # Different config file with resume
     $0 -c conf/annotation.config -r -v
+
+    # Submit every process as a SLURM job (Singularity/Apptainer only; see conf/slurm.config)
+    $0 --singularity -w /shared/nextflow_work -- -profile slurm --slurm_account my_project
 
 ${YELLOW}DIRECTORY STRUCTURE:${NC}
     The script expects sample directories with final_summary files:
@@ -550,6 +558,11 @@ run_sample_pipeline() {
         log "INFO" "Overriding config input_dir with: $BASE_DATA_DIR"
     fi
 
+    if [[ ${#EXTRA_PIPELINE_ARGS[@]} -gt 0 ]]; then
+        # pipeline_cmd is eval'd, so quote each forwarded arg
+        pipeline_cmd="$pipeline_cmd $(printf '%q ' "${EXTRA_PIPELINE_ARGS[@]}")"
+    fi
+
     log "VERBOSE" "Pipeline command: $pipeline_cmd"
 
     # Run pipeline using singularity containers - output shown directly
@@ -820,6 +833,11 @@ parse_arguments() {
                 show_help
                 exit 0
                 ;;
+            --)
+                shift
+                EXTRA_PIPELINE_ARGS=("$@")
+                break
+                ;;
             -s|--samples)
                 # VERSION 2: Warn user that this option is ignored
                 log "WARNING" "The -s/--samples option is ignored in version 2. Using hardcoded path: $HARDCODED_SAMPLE_IDS_FILE"
@@ -873,6 +891,11 @@ validate_environment() {
     esac
     [[ -f "$pipeline_script" ]] || die "Pipeline script not found: $pipeline_script"
 
+    # run_pipeline_docker.sh already passes -profile docker; a second -profile would replace it
+    if [[ "$CONTAINER_ENGINE" == docker ]] && printf '%s\n' "${EXTRA_PIPELINE_ARGS[@]}" | grep -qx -- '-profile'; then
+        die "-profile cannot be forwarded with the docker engine (SLURM needs --singularity)"
+    fi
+
     # Create work directory
     mkdir -p "$NEXTFLOW_WORK_DIR" || die "Cannot create work directory: $NEXTFLOW_WORK_DIR"
 
@@ -897,6 +920,9 @@ show_configuration() {
     log "INFO" "  Pipeline directory: $PIPELINE_DIR"
     log "INFO" "  Work directory: $NEXTFLOW_WORK_DIR (shared across all samples for caching)"
     log "INFO" "  Config file: $CONFIG_FILE"
+    if [[ ${#EXTRA_PIPELINE_ARGS[@]} -gt 0 ]]; then
+        log "INFO" "  Extra pipeline args: ${EXTRA_PIPELINE_ARGS[*]}"
+    fi
     log "INFO" "  Check interval: ${CHECK_INTERVAL}s"
     if [[ $((TIMEOUT/3600)) -gt 0 ]]; then
         log "INFO" "  Timeout: $((TIMEOUT/3600))h"
