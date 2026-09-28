@@ -19,6 +19,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Nextflow >= 26.04 parses configs/scripts with the strict v2 syntax by default, which rejects
+# this pipeline's config (def functions, top-level if blocks). Use the legacy parser unless
+# the caller chose otherwise; older Nextflow versions ignore this variable.
+export NXF_SYNTAX_PARSER="${NXF_SYNTAX_PARSER:-v1}"
+
 # Check if Nextflow is installed
 if ! command -v nextflow &> /dev/null; then
     echo " Nextflow is not installed."
